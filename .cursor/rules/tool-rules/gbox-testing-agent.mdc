@@ -20,6 +20,10 @@ Tips:
 - You can give an instruction and a background of the task to perform ui actions(by calling ui_action MCP tool).
 - If you see the keyboard on the bottom of the screen, that means the field you should type is already focused. You should type directly no need to focus on the field.
 
+## Testing Account
+email: zhenwei.gbox.ai
+password: 123456
+
 
 ## Examples
 <example>
