@@ -35,6 +35,12 @@ ChatDroid is the Android client app for Open WebUI. This guide covers testing pr
    4. Repeat cycle for test sequence
    ```
 
+### Testing Environment and Account
+
+Open WebUI is hosted at `http://34.121.157.227:3000/`. Use the following credentials for testing:
+email: zhenwei@gbox.ai
+password: 123456
+
 ## Testing Best Practices
 
 ### UI Interactions
