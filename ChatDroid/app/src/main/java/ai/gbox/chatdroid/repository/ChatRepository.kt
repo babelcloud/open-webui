@@ -4,8 +4,16 @@ import android.util.Log
 import ai.gbox.chatdroid.network.*
 import ai.gbox.chatdroid.datastore.AuthPreferences
 import com.squareup.moshi.JsonDataException
+import com.squareup.moshi.Moshi
+import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import retrofit2.HttpException
 import java.util.UUID
+
+// Data class to hold both user and assistant messages from a send operation
+data class MessagePair(
+    val userMessage: Message,
+    val assistantMessage: Message
+)
 
 class ChatRepository {
     private val api: ChatService by lazy { ApiClient.create(ChatService::class.java) }
@@ -113,18 +121,54 @@ class ChatRepository {
         }
     }
 
-    // Send message and get completion
-    suspend fun sendMessage(chatId: String, message: String, model: String = "gpt-3.5-turbo"): Result<String> {
+    // Send message, get AI response, and update chat
+    suspend fun sendMessage(chatId: String, message: String, model: String = "gpt-3.5-turbo"): Result<MessagePair> {
         return try {
             Log.d("ChatRepository", "Sending message to chat $chatId: $message")
             
-            val messages = listOf(
-                ChatMessage(role = "user", content = message)
-            )
+            // First, get the current chat to understand the conversation history
+            val chatResult = getChatById(chatId)
+            if (chatResult.isFailure) {
+                return Result.failure(Exception("Failed to get chat context: ${chatResult.exceptionOrNull()?.message}"))
+            }
+            
+            val chat = chatResult.getOrThrow()
+            
+            // Build conversation history for the completion request
+            val conversationMessages = mutableListOf<ChatMessage>()
+            
+            // Add existing messages from chat history
+            val history = chat.chat.history
+            var currentId = history.currentId
+            val visitedIds = mutableSetOf<String>()
+            val messageOrder = mutableListOf<Message>()
+            
+            // Collect messages in reverse chronological order
+            while (currentId != null && currentId !in visitedIds) {
+                val historyMessage = history.messages[currentId]
+                if (historyMessage != null) {
+                    messageOrder.add(0, historyMessage)
+                    visitedIds.add(currentId)
+                    currentId = historyMessage.parentId
+                } else {
+                    break
+                }
+            }
+            
+            // Convert to chat messages for completion API
+            messageOrder.forEach { historyMessage ->
+                conversationMessages.add(ChatMessage(
+                    role = historyMessage.role,
+                    content = historyMessage.content
+                ))
+            }
+            
+            // Add the new user message
+            conversationMessages.add(ChatMessage(role = "user", content = message))
             
             val completionRequest = ChatCompletionRequest(
                 model = model,
-                messages = messages,
+                messages = conversationMessages,
                 stream = false
             )
             
@@ -135,8 +179,68 @@ class ChatRepository {
                 Log.d("ChatRepository", "Received completion response: $responseBody")
                 
                 if (responseBody != null) {
-                    // For now, return the raw response. We'll parse this properly later
-                    Result.success(responseBody)
+                    // Parse the completion response to get the assistant's message
+                    val assistantResponse = parseCompletionResponse(responseBody)
+                    
+                    if (assistantResponse != null) {
+                        Log.d("ChatRepository", "Assistant response parsed successfully: $assistantResponse")
+                        
+                        // Create new message IDs
+                        val userMessageId = UUID.randomUUID().toString()
+                        val assistantMessageId = UUID.randomUUID().toString()
+                        
+                        Log.d("ChatRepository", "Creating messages with IDs: user=$userMessageId, assistant=$assistantMessageId")
+                        
+                        // Create user and assistant messages
+                        val userMessage = Message(
+                            id = userMessageId,
+                            parentId = history.currentId,
+                            role = "user",
+                            content = message,
+                            timestamp = System.currentTimeMillis() / 1000
+                        )
+                        
+                        val assistantMessage = Message(
+                            id = assistantMessageId,
+                            parentId = userMessageId,
+                            role = "assistant",
+                            content = assistantResponse,
+                            model = model,
+                            timestamp = System.currentTimeMillis() / 1000
+                        )
+                        
+                        // Update the chat history
+                        val updatedMessages = history.messages.toMutableMap()
+                        updatedMessages[userMessageId] = userMessage
+                        updatedMessages[assistantMessageId] = assistantMessage
+                        
+                        val updatedHistory = ChatHistory(
+                            currentId = assistantMessageId,
+                            messages = updatedMessages
+                        )
+                        
+                        val updatedChatData = chat.chat.copy(history = updatedHistory)
+                        val chatForm = ChatForm(chat = updatedChatData)
+                        
+                        // Update the chat on the server
+                        Log.d("ChatRepository", "Updating chat on server with chatId: $chatId")
+                        val updateResult = api.updateChat(chatId, chatForm)
+                        
+                        if (updateResult.isSuccessful) {
+                            Log.d("ChatRepository", "Successfully updated chat with new messages")
+                            Log.d("ChatRepository", "Returning MessagePair with assistant content: ${assistantMessage.content}")
+                            Result.success(MessagePair(userMessage, assistantMessage))
+                        } else {
+                            val errorBody = updateResult.errorBody()?.string()
+                            Log.e("ChatRepository", "Failed to update chat: ${updateResult.code()} - ${updateResult.message()}")
+                            Log.e("ChatRepository", "Update error body: $errorBody")
+                            Result.failure(Exception("Failed to update chat: ${updateResult.code()} - $errorBody"))
+                        }
+                    } else {
+                        Log.e("ChatRepository", "Could not parse assistant response from completion")
+                        Log.e("ChatRepository", "Raw response was: $responseBody")
+                        Result.failure(Exception("Could not parse assistant response from completion"))
+                    }
                 } else {
                     Result.failure(Exception("Empty response from chat completion"))
                 }
@@ -148,6 +252,65 @@ class ChatRepository {
         } catch (e: Exception) {
             Log.e("ChatRepository", "Error sending message", e)
             Result.failure(e)
+        }
+    }
+    
+    // Parse the chat completion response to extract the assistant's message
+    private fun parseCompletionResponse(responseBody: String): String? {
+        return try {
+            Log.d("ChatRepository", "Parsing completion response: $responseBody")
+            
+            // Create Moshi instance for JSON parsing
+            val moshi = Moshi.Builder()
+                .add(KotlinJsonAdapterFactory())
+                .build()
+            
+            // Try parsing as ChatCompletionResponse first
+            val completionAdapter = moshi.adapter(ChatCompletionResponse::class.java)
+            val completionResponse = completionAdapter.fromJson(responseBody)
+            
+            if (completionResponse != null && completionResponse.choices.isNotEmpty()) {
+                val assistantMessage = completionResponse.choices[0].message.content
+                Log.d("ChatRepository", "Successfully parsed assistant message: $assistantMessage")
+                return assistantMessage
+            }
+            
+            // If that fails, try parsing as a generic JSON with manual field extraction
+            Log.d("ChatRepository", "Standard parsing failed, trying manual extraction")
+            
+            // Look for different possible response formats from Open WebUI
+            val patterns = listOf(
+                "\"content\"\\s*:\\s*\"([^\"]*(?:\\\\.[^\"]*)*)",  // Standard OpenAI format
+                "\"message\"\\s*:\\s*\"([^\"]*(?:\\\\.[^\"]*)*)",  // Alternative format
+                "\"text\"\\s*:\\s*\"([^\"]*(?:\\\\.[^\"]*)*)",     // Text field format
+                "\"response\"\\s*:\\s*\"([^\"]*(?:\\\\.[^\"]*)*)" // Response field format
+            )
+            
+            for (pattern in patterns) {
+                val regex = pattern.toRegex()
+                val match = regex.find(responseBody)
+                if (match != null) {
+                    val content = match.groupValues[1]
+                    // Unescape JSON escape sequences
+                    val unescaped = content
+                        .replace("\\\"", "\"")
+                        .replace("\\\\", "\\")
+                        .replace("\\n", "\n")
+                        .replace("\\r", "\r")
+                        .replace("\\t", "\t")
+                    Log.d("ChatRepository", "Extracted content using pattern: $unescaped")
+                    return unescaped
+                }
+            }
+            
+            Log.w("ChatRepository", "Could not extract content from completion response with any pattern")
+            Log.w("ChatRepository", "Response was: $responseBody")
+            null
+            
+        } catch (e: Exception) {
+            Log.e("ChatRepository", "Error parsing completion response: ${e.message}", e)
+            Log.e("ChatRepository", "Response body was: $responseBody")
+            null
         }
     }
 
@@ -264,4 +427,4 @@ class ChatRepository {
             Result.failure(e)
         }
     }
-} 
+}

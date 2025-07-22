@@ -81,10 +81,8 @@ class ChatDetailActivity : AppCompatActivity() {
             Log.d("ChatDetailActivity", "Setting up RecyclerView")
             adapter = MessageAdapter()
             binding.rvMessages.apply {
-                layoutManager = LinearLayoutManager(this@ChatDetailActivity).apply {
-                    reverseLayout = true // Show newest messages at bottom
-                    stackFromEnd = true
-                }
+                // Use default linear layout; adapter already reverses messages so newest appears first
+                layoutManager = LinearLayoutManager(this@ChatDetailActivity)
                 adapter = this@ChatDetailActivity.adapter
             }
             Log.d("ChatDetailActivity", "RecyclerView setup completed")

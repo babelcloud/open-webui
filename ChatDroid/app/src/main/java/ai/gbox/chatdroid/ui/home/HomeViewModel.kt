@@ -94,6 +94,44 @@ class HomeViewModel : ViewModel() {
             }
         }
     }
+    
+    fun togglePinChat(chatId: String) {
+        Log.d("HomeViewModel", "Toggling pin for chat: $chatId")
+        viewModelScope.launch {
+            try {
+                val result = repo.togglePinChat(chatId)
+                result.fold(onSuccess = {
+                    Log.d("HomeViewModel", "Pin toggled for chat: ${it.id}")
+                    loadChats()
+                }, onFailure = { exception ->
+                    Log.e("HomeViewModel", "Failed to toggle pin", exception)
+                    _error.postValue("Failed to toggle pin: ${exception.message}")
+                })
+            } catch (e: Exception) {
+                Log.e("HomeViewModel", "Exception in togglePinChat", e)
+                _error.postValue("Error: ${e.message}")
+            }
+        }
+    }
+    
+    fun toggleArchiveChat(chatId: String) {
+        Log.d("HomeViewModel", "Toggling archive for chat: $chatId")
+        viewModelScope.launch {
+            try {
+                val result = repo.toggleArchiveChat(chatId)
+                result.fold(onSuccess = {
+                    Log.d("HomeViewModel", "Archive toggled for chat: ${it.id}")
+                    loadChats()
+                }, onFailure = { exception ->
+                    Log.e("HomeViewModel", "Failed to toggle archive", exception)
+                    _error.postValue("Failed to toggle archive: ${exception.message}")
+                })
+            } catch (e: Exception) {
+                Log.e("HomeViewModel", "Exception in toggleArchiveChat", e)
+                _error.postValue("Error: ${e.message}")
+            }
+        }
+    }
 
     fun refreshChats() {
         loadChats()

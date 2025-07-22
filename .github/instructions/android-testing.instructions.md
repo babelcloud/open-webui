@@ -17,7 +17,7 @@ ChatDroid is the Android client app for Open WebUI. This guide covers testing pr
 
 1. **Box Management**:
    ```
-   1. Create Android box (get boxId)
+   1. If you don’t have an Android box or your previous one has expired, create a new one and get the boxId. Otherwise, reuse your existing boxId. Set expiredIn to 2h.
    2. ALWAYS open live-view immediately after box creation
    3. Use absolute paths for APK installation
    ```

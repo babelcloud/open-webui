@@ -30,7 +30,7 @@ password: 123456
 ## Examples
 <example>
 ✅ Correct Flow
-1. Create Android box → obtain `boxId`.
+1. If you don’t have an Android box or your previous one has expired, create a new one and get the boxId. Otherwise, reuse your existing boxId. Set expiredIn to 2h.
 2. Open live-view for `boxId`.
 3. Install APK with absolute path `/abs/path/to/repo/geoquiz/app/build/outputs/apk/debug/app-debug.apk`, with the open parameter to be true to launch the app.
 4. Get a screenshot to make decision.

@@ -83,11 +83,11 @@ interface ChatService {
     ): Response<ChatResponse>
     
     // Chat completion (for sending messages)
-    @POST("chat/completions")
+    @POST("../chat/completions")
     suspend fun sendChatCompletion(@Body completionRequest: ChatCompletionRequest): Response<ResponseBody>
     
     // Get models
-    @GET("models")
+    @GET("../models")
     suspend fun getModels(): Response<ModelsResponse>
 }
 

@@ -11,9 +11,11 @@ import android.widget.Toast
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.ViewModelProvider
 import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import ai.gbox.chatdroid.ChatDetailActivity
 import ai.gbox.chatdroid.databinding.FragmentHomeBinding
 import ai.gbox.chatdroid.network.ChatTitleIdResponse
+import ai.gbox.chatdroid.repository.ChatRepository
 
 class HomeFragment : Fragment() {
 
@@ -55,6 +57,13 @@ class HomeFragment : Fragment() {
         )
         binding.rvChats.layoutManager = LinearLayoutManager(requireContext())
         binding.rvChats.adapter = adapter
+        
+        // Setup pull-to-refresh
+        val swipe = binding.root.findViewById<SwipeRefreshLayout>(R.id.swipeRefresh)
+        swipe.setOnRefreshListener {
+            Log.d("HomeFragment", "Pull-to-refresh triggered")
+            homeViewModel.refreshChats()
+        }
     }
 
     private fun setupObservers() {
@@ -75,38 +84,40 @@ class HomeFragment : Fragment() {
         homeViewModel.loading.observe(viewLifecycleOwner) { isLoading ->
             Log.d("HomeFragment", "Loading state: $isLoading")
             if (isLoading) {
-                updateEmptyState(true, true, null)
+                binding.swipeRefresh.isRefreshing = true
+            }
+            else {
+                binding.swipeRefresh.isRefreshing = false
             }
         }
     }
 
     private fun setupFab() {
-        // Add floating action button for creating new chat
-        // Note: We'll need to add this to the layout if it doesn't exist
-        // For now, let's just add a refresh capability through pull-to-refresh or similar
+        // FloatingActionButton is declared in Activity's layout
+        val fab = requireActivity().findViewById<com.google.android.material.floatingactionbutton.FloatingActionButton>(R.id.fab)
+        fab.setOnClickListener {
+            // Create a new chat and refresh list
+            Log.d("HomeFragment", "FAB clicked: creating new chat")
+            homeViewModel.createNewChat()
+        }
     }
 
     private fun showChatOptionsDialog(chat: ChatTitleIdResponse) {
-        val options = arrayOf("Open", "Delete", "Pin/Unpin")
+        val options = arrayOf("Open", "Delete", "Pin/Unpin", "Archive/Unarchive")
         
         AlertDialog.Builder(requireContext())
             .setTitle(chat.title)
             .setItems(options) { _, which ->
                 when (which) {
-                    0 -> {
-                        // Open chat
-                        Log.d("HomeFragment", "Opening chat: ${chat.title}")
-                        openChatDetail(chat)
-                    }
-                    1 -> {
-                        // Delete chat
-                        showDeleteConfirmationDialog(chat)
-                    }
+                    0 -> openChatDetail(chat)
+                    1 -> showDeleteConfirmationDialog(chat)
                     2 -> {
-                        // Pin/Unpin chat
                         Log.d("HomeFragment", "Toggling pin for chat: ${chat.title}")
-                        // TODO: Implement pin toggle
-                        Toast.makeText(requireContext(), "Pin feature coming soon", Toast.LENGTH_SHORT).show()
+                        homeViewModel.togglePinChat(chat.id)
+                    }
+                    3 -> {
+                        Log.d("HomeFragment", "Toggling archive for chat: ${chat.title}")
+                        homeViewModel.toggleArchiveChat(chat.id)
                     }
                 }
             }

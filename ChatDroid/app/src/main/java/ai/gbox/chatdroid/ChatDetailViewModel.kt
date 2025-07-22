@@ -8,6 +8,7 @@ import androidx.lifecycle.viewModelScope
 import ai.gbox.chatdroid.network.ChatResponse
 import ai.gbox.chatdroid.network.Message
 import ai.gbox.chatdroid.repository.ChatRepository
+import ai.gbox.chatdroid.repository.MessagePair
 import kotlinx.coroutines.launch
 import java.util.UUID
 
@@ -91,7 +92,7 @@ class ChatDetailViewModel : ViewModel() {
             try {
                 Log.d("ChatDetailViewModel", "Sending message: $content")
                 
-                // Add user message to UI immediately
+                // Add user message to UI immediately with loading state
                 val userMessage = MessageItem(
                     id = UUID.randomUUID().toString(),
                     role = "user",
@@ -100,33 +101,68 @@ class ChatDetailViewModel : ViewModel() {
                     isLoading = false
                 )
                 
+                // Add loading indicator for assistant response
+                val loadingMessage = MessageItem(
+                    id = UUID.randomUUID().toString(),
+                    role = "assistant",
+                    content = "Thinking...",
+                    timestamp = System.currentTimeMillis() / 1000,
+                    isLoading = true
+                )
+                
                 val currentMessages = _messages.value?.toMutableList() ?: mutableListOf()
                 currentMessages.add(userMessage)
+                currentMessages.add(loadingMessage)
                 _messages.postValue(currentMessages)
                 
                 // Send to API
                 val result = repository.sendMessage(chatId, content)
                 
                 result.fold(
-                    onSuccess = { response ->
+                    onSuccess = { messagePair ->
                         Log.d("ChatDetailViewModel", "Message sent successfully")
-                        // TODO: Parse the API response and add assistant message
-                        // For now, just reload the chat to get the updated conversation
-                        loadChat(chatId)
+                        
+                        // Replace loading message with actual assistant response
+                        val updatedMessages = _messages.value?.toMutableList() ?: mutableListOf()
+                        
+                        // Remove the loading message
+                        updatedMessages.removeLastOrNull()
+                        
+                        // Update the user message with the actual one from server (with proper ID)
+                        if (updatedMessages.isNotEmpty()) {
+                            updatedMessages[updatedMessages.size - 1] = MessageItem.fromMessage(messagePair.userMessage)
+                        }
+                        
+                        // Add the assistant message
+                        updatedMessages.add(MessageItem.fromMessage(messagePair.assistantMessage))
+                        
+                        _messages.postValue(updatedMessages)
+                        _error.postValue(null)
                     },
                     onFailure = { exception ->
                         Log.e("ChatDetailViewModel", "Failed to send message", exception)
                         _error.postValue("Failed to send message: ${exception.message}")
                         
-                        // Remove the user message from UI since it failed
+                        // Remove both the user message and loading message since it failed
                         val updatedMessages = _messages.value?.toMutableList() ?: mutableListOf()
-                        updatedMessages.removeLastOrNull()
+                        // Remove loading message
+                        if (updatedMessages.isNotEmpty()) updatedMessages.removeLastOrNull()
+                        // Remove user message
+                        if (updatedMessages.isNotEmpty()) updatedMessages.removeLastOrNull()
                         _messages.postValue(updatedMessages)
                     }
                 )
             } catch (e: Exception) {
                 Log.e("ChatDetailViewModel", "Exception sending message", e)
                 _error.postValue("Unexpected error: ${e.message}")
+                
+                // Remove both messages on exception
+                val updatedMessages = _messages.value?.toMutableList() ?: mutableListOf()
+                if (updatedMessages.size >= 2) {
+                    updatedMessages.removeLastOrNull() // loading message
+                    updatedMessages.removeLastOrNull() // user message
+                    _messages.postValue(updatedMessages)
+                }
             } finally {
                 _loading.postValue(false)
             }

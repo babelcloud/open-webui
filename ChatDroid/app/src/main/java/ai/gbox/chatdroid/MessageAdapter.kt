@@ -14,7 +14,8 @@ class MessageAdapter : RecyclerView.Adapter<MessageAdapter.MessageViewHolder>() 
     private var messages: List<MessageItem> = emptyList()
 
     fun updateMessages(newMessages: List<MessageItem>) {
-        messages = newMessages
+        // Reverse list order so newest messages appear at top
+        messages = newMessages.reversed()
         notifyDataSetChanged()
     }
 
